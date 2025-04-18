@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# ========== USER SETTINGS ==========
+# ========== USER SETTINGS ========== 
 # You can change these:
 SMOOTHING_PERIOD = st.slider('RS Ratio Smoothing Period', min_value=1, max_value=20, value=1)  # For RS Ratio smoothing
 MOMENTUM_PERIOD = st.slider('RS Momentum Period', min_value=1, max_value=30, value=14)    # For RS Momentum calculation
@@ -76,13 +76,16 @@ if tail_data:
         tail_df,
         x='RS Ratio',
         y='RS Momentum',
-        text='Name',
         color='Name',
         title=f'RRG Chart (Sector Indices vs Nifty 50) — Weekly',
         width=800,
         height=600
     )
 
+    # Remove dots for all data points
+    fig.update_traces(marker=dict(size=0))  # This will hide the dots
+
+    # Add lines (tails) connecting the previous and current points
     for name in indices.keys():
         sector_data = tail_df[tail_df['Name'] == name]
         fig.add_trace(
@@ -105,12 +108,6 @@ if tail_data:
             arrowcolor='white'
         )
 
-    # Label only the last dot
-    fig.update_traces(textposition='top center', showlegend=False)
-    for trace in fig.data:
-        if trace.text is not None:
-            trace.text = [name if i == len(trace.text) - 1 else "" for i, name in enumerate(trace.text)]
-
     # Quadrant lines
     x_mean = tail_df['RS Ratio'].mean()
     y_mean = tail_df['RS Momentum'].mean()
@@ -125,8 +122,3 @@ if tail_data:
     st.plotly_chart(fig)
 else:
     st.warning("⚠️ Not enough data to plot RRG chart. Try lowering the tail or smoothing periods.")
-
-
-
-
-# streamlit run app.py
