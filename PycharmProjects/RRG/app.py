@@ -5,12 +5,32 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # ========== USER SETTINGS ========== 
-# You can change these:
-SMOOTHING_PERIOD = st.slider('RS Ratio Smoothing Period', min_value=1, max_value=20, value=1)  # For RS Ratio smoothing
-MOMENTUM_PERIOD = st.slider('RS Momentum Period', min_value=1, max_value=30, value=14)    # For RS Momentum calculation
-TAIL_LENGTH = st.slider('Tail Length', min_value=1, max_value=20, value=7)        # How many periods of tail to show
+# Instead of sliders, use text input to allow users to type values
+SMOOTHING_PERIOD = st.text_input('RS Ratio Smoothing Period', '1')  # Default to 1
+MOMENTUM_PERIOD = st.text_input('RS Momentum Period', '14')    # Default to 14
+TAIL_LENGTH = st.text_input('Tail Length', '7')        # Default to 7
 
-# Use actual NSE sector indices (not stocks) and Nifty Financial Services
+# Frequency of the data
+data_frequency = st.selectbox('Data Frequency', ['Daily', 'Weekly', 'Monthly'], index=0)
+
+# Convert the user inputs to integers
+try:
+    SMOOTHING_PERIOD = int(SMOOTHING_PERIOD)
+    MOMENTUM_PERIOD = int(MOMENTUM_PERIOD)
+    TAIL_LENGTH = int(TAIL_LENGTH)
+except ValueError:
+    st.error("Please enter valid integers for the input fields.")
+    st.stop()
+
+# Set interval based on user selection
+if data_frequency == 'Daily':
+    interval = '1d'
+elif data_frequency == 'Weekly':
+    interval = '1wk'
+else:  # Monthly
+    interval = '1mo'
+
+# ========== SECTOR INDICES AND BENCHMARK ========== 
 indices = {
     'Nifty Bank': '^NSEBANK',
     'Nifty IT': '^CNXIT',
@@ -24,9 +44,8 @@ indices = {
 }
 benchmark = '^NSEI'  # Nifty 50 (benchmark)
 
-# Set to weekly by default
-interval = '1wk'
-period = '6mo'
+# Set the maximum period (this can be adjusted)
+period = 'max'
 
 # Download data
 tickers = list(indices.values()) + [benchmark]
@@ -43,7 +62,7 @@ if benchmark not in valid_tickers:
         st.error("⚠️ No valid data found for the selected timeframe.")
         st.stop()
 
-# Relative Strength calculations
+# ========== RELATIVE STRENGTH CALCULATIONS ========== 
 rs_df = pd.DataFrame()
 for name, ticker in indices.items():
     rs_df[name] = data[ticker] / data[benchmark]
@@ -53,6 +72,7 @@ for col in rs_df.columns:
     rs_df[col + '_ratio'] = rs_df[col].rolling(window=SMOOTHING_PERIOD).mean() * 100
     rs_df[col + '_momentum'] = rs_df[col].pct_change(periods=MOMENTUM_PERIOD)
 
+# ========== TAIL DATA FOR RRG CHART ========== 
 # Get latest TAIL_LENGTH weeks of RS data for tails
 tail_data = []
 for col in indices.keys():
@@ -63,13 +83,13 @@ for col in indices.keys():
             'Name': col,
             'RS Ratio': ratio_series.iloc[-TAIL_LENGTH:],
             'RS Momentum': momentum_series.iloc[-TAIL_LENGTH:],
-            'Week': list(range(1, TAIL_LENGTH + 1))
+            'Period': list(range(1, TAIL_LENGTH + 1))
         })
 
 # Convert to DataFrame
 if tail_data:
     tail_df = pd.DataFrame(tail_data)
-    tail_df = tail_df.explode(['RS Ratio', 'RS Momentum', 'Week']).reset_index(drop=True)
+    tail_df = tail_df.explode(['RS Ratio', 'RS Momentum', 'Period']).reset_index(drop=True)
 
     # Plot the RRG chart with tails (connected by lines)
     fig = px.scatter(
@@ -77,7 +97,7 @@ if tail_data:
         x='RS Ratio',
         y='RS Momentum',
         color='Name',
-        title=f'RRG Chart (Sector Indices vs Nifty 50) — Weekly',
+        title=f'RRG Chart (Sector Indices vs Nifty 50) — {data_frequency}',
         width=800,
         height=600
     )
