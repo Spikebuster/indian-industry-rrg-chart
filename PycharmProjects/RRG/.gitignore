@@ -1,0 +1,5 @@
+# Ignore system directories
+AppData/
+*.log
+*.tmp
+*.bak
