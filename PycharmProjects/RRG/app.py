@@ -4,13 +4,21 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# ========== USER SETTINGS ========== 
-# You can change these:
-SMOOTHING_PERIOD = st.number_input('RS Ratio Smoothing Period', min_value=1, max_value=20, value=1)  # For RS Ratio smoothing
-MOMENTUM_PERIOD = st.number_input('RS Momentum Period', min_value=1, max_value=30, value=14)    # For RS Momentum calculation
-TAIL_LENGTH = st.number_input('Tail Length', min_value=1, max_value=20, value=7)        # How many periods of tail to show
+# ========== USER SETTINGS ==========
+SMOOTHING_PERIOD = st.number_input('RS Ratio Smoothing Period', min_value=1, max_value=20, value=1)
+MOMENTUM_PERIOD = st.number_input('RS Momentum Period', min_value=1, max_value=30, value=14)
+TAIL_LENGTH = st.number_input('Tail Length', min_value=1, max_value=20, value=7)
+interval = st.selectbox('Select Interval', ['1d', '1wk', '1mo'], index=1)  # Default to weekly
 
-# Use actual NSE sector indices (not stocks) and Nifty Financial Services
+# Auto-adjust data period based on interval
+if interval == '1d':
+    period = '1y'
+elif interval == '1wk':
+    period = '5y'
+else:
+    period = '10y'
+
+# NSE sector indices
 indices = {
     'Nifty Bank': '^NSEBANK',
     'Nifty IT': '^CNXIT',
@@ -22,40 +30,40 @@ indices = {
     'Nifty Energy': '^CNXENERGY',
     'Nifty Financial Services': 'NIFTY_FIN_SERVICE.NS'
 }
-benchmark = '^NSEI'  # Nifty 50 (benchmark)
-
-# Set period to 'max' to fetch the maximum available data
-period = 'max'
-
-# Define the interval for different frequencies
-interval = st.selectbox('Select Interval', ['1d', '1wk', '1mo'], index=1)  # Default to weekly
+benchmark = '^NSEI'
 
 # Download data
 tickers = list(indices.values()) + [benchmark]
-data = yf.download(tickers, period=period, interval=interval)['Close']
-data = data.dropna(axis=1)
+try:
+    data = yf.download(tickers, period=period, interval=interval)['Close']
+except Exception as e:
+    st.error(f"Data download failed: {e}")
+    st.stop()
 
-# Filter indices and benchmark to only valid ones
+data = data.dropna(axis=1)
 valid_tickers = data.columns.tolist()
+st.write("✅ Valid tickers fetched:", valid_tickers)
+
+# Filter indices
 indices = {name: ticker for name, ticker in indices.items() if ticker in valid_tickers}
 if benchmark not in valid_tickers:
+    st.warning("⚠️ Benchmark not found in data. Picking last available ticker instead.")
     if valid_tickers:
         benchmark = valid_tickers[-1]
     else:
-        st.error("⚠️ No valid data found for the selected timeframe.")
+        st.error("❌ No valid data found for selected interval and period.")
         st.stop()
 
-# Relative Strength calculations
+# Relative Strength Calculation
 rs_df = pd.DataFrame()
 for name, ticker in indices.items():
     rs_df[name] = data[ticker] / data[benchmark]
 
-# RS Ratio and Momentum (smoothed and percent change)
 for col in rs_df.columns:
     rs_df[col + '_ratio'] = rs_df[col].rolling(window=SMOOTHING_PERIOD).mean() * 100
     rs_df[col + '_momentum'] = rs_df[col].pct_change(periods=MOMENTUM_PERIOD)
 
-# Get latest TAIL_LENGTH weeks of RS data for tails
+# Prepare tail data
 tail_data = []
 for col in indices.keys():
     ratio_series = rs_df[col + '_ratio'].dropna()
@@ -68,46 +76,39 @@ for col in indices.keys():
             'Week': list(range(1, TAIL_LENGTH + 1))
         })
 
-# Convert to DataFrame
 if tail_data:
     tail_df = pd.DataFrame(tail_data)
     tail_df = tail_df.explode(['RS Ratio', 'RS Momentum', 'Week']).reset_index(drop=True)
 
-    # Plot the RRG chart with tails (connected by lines)
+    # Base figure
     fig = px.scatter(
         tail_df,
         x='RS Ratio',
         y='RS Momentum',
         color='Name',
-        title=f'RRG Chart (Sector Indices vs Nifty 50) — {interval.capitalize()}',
+        title=f'RRG Chart (Sector Indices vs Nifty 50) — {interval.upper()}',
         width=800,
         height=600
     )
 
-    # Remove dots for all data points
-    fig.update_traces(marker=dict(size=0))  # This will hide the dots
+    # Hide all dots
+    fig.update_traces(marker=dict(size=0))
 
-    # Add lines (tails) connecting the previous and current points
+    # Add lines + arrows
     for name in indices.keys():
         sector_data = tail_df[tail_df['Name'] == name]
         fig.add_trace(
             px.line(sector_data, x='RS Ratio', y='RS Momentum').data[0]
         )
-
-        # Add arrow instead of dot at latest point
-        latest_point = sector_data.iloc[-1]
-        previous_point = sector_data.iloc[-2]
+        # Arrow for last segment
+        latest = sector_data.iloc[-1]
+        previous = sector_data.iloc[-2]
         fig.add_annotation(
-            x=latest_point['RS Ratio'],
-            y=latest_point['RS Momentum'],
-            ax=previous_point['RS Ratio'],
-            ay=previous_point['RS Momentum'],
+            x=latest['RS Ratio'], y=latest['RS Momentum'],
+            ax=previous['RS Ratio'], ay=previous['RS Momentum'],
             xref='x', yref='y', axref='x', ayref='y',
             showarrow=True,
-            arrowhead=2,
-            arrowsize=1.5,
-            arrowwidth=2,
-            arrowcolor='white'
+            arrowhead=2, arrowsize=1.5, arrowwidth=2, arrowcolor='white'
         )
 
     # Quadrant lines
@@ -120,8 +121,8 @@ if tail_data:
                   x1=tail_df['RS Ratio'].max(), y1=y_mean,
                   line=dict(color="white", dash="dash"))
 
-    # Show plot inline with Streamlit
     st.plotly_chart(fig)
 else:
-    st.warning("⚠️ Not enough data to plot RRG chart. Try lowering the tail or smoothing periods.")
+    st.warning("⚠️ Not enough data to plot RRG chart. Try reducing tail/smoothing period or using a different interval.")
+
 
