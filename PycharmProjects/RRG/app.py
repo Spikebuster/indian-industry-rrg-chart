@@ -3,22 +3,17 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# ========== USER SETTINGS ==========
-SMOOTHING_PERIOD = st.number_input('RS Ratio Smoothing Period', min_value=1, max_value=20, value=1)
-MOMENTUM_PERIOD = st.number_input('RS Momentum Period', min_value=1, max_value=30, value=14)
-TAIL_LENGTH = st.number_input('Tail Length', min_value=1, max_value=20, value=7)
+# ========== UI SETTINGS ==========
+SMOOTHING_PERIOD = st.number_input('RS Ratio Smoothing Period', 1, 20, 1)
+MOMENTUM_PERIOD = st.number_input('RS Momentum Period', 1, 30, 14)
+TAIL_LENGTH = st.number_input('Tail Length', 1, 20, 7)
 interval = st.selectbox('Select Interval', ['1d', '1wk', '1mo'], index=1)
 
-# Auto-adjust period based on interval
-if interval == '1d':
-    period = '1y'
-elif interval == '1wk':
-    period = '5y'
-else:
-    period = '10y'
-st.write(f"🔄 Fetching data for period: **{period}** at interval: **{interval}**")
+# Choose download period based on interval
+period = {'1d': '1y', '1wk': '5y', '1mo': '10y'}[interval]
+st.write(f"Fetching data for: `{period}` at `{interval}` interval...")
 
-# NSE Indices
+# ========== SYMBOLS ==========
 indices = {
     'Nifty Bank': '^NSEBANK',
     'Nifty IT': '^CNXIT',
@@ -32,93 +27,75 @@ indices = {
 }
 benchmark = '^NSEI'
 
-# Download data
+# ========== FETCH DATA ==========
 tickers = list(indices.values()) + [benchmark]
-data = yf.download(tickers, period=period, interval=interval)['Close']
-data = data.dropna(axis=1)
+df = yf.download(tickers, period=period, interval=interval)['Close']
+df = df.dropna(axis=1)
+valid_tickers = df.columns.tolist()
 
-valid_tickers = data.columns.tolist()
-st.write("✅ Valid tickers:", valid_tickers)
-
-# Filter out missing tickers
+# Filter valid indices
 indices = {name: ticker for name, ticker in indices.items() if ticker in valid_tickers}
 if benchmark not in valid_tickers:
-    st.warning("⚠️ Benchmark not available. Using fallback ticker.")
-    benchmark = valid_tickers[-1] if valid_tickers else None
-
-if not benchmark or not indices:
-    st.error("❌ No valid tickers to process.")
+    st.error("Benchmark data not available. Try again later.")
     st.stop()
 
-# RS calculations
+# ========== CALCULATE RS ==========
 rs_df = pd.DataFrame()
 for name, ticker in indices.items():
-    rs_df[name] = data[ticker] / data[benchmark]
+    rs = df[ticker] / df[benchmark]
+    rs_df[name + '_ratio'] = rs.rolling(SMOOTHING_PERIOD).mean() * 100
+    rs_df[name + '_momentum'] = rs.pct_change(MOMENTUM_PERIOD)
 
-for col in rs_df.columns:
-    rs_df[col + '_ratio'] = rs_df[col].rolling(window=SMOOTHING_PERIOD).mean() * 100
-    rs_df[col + '_momentum'] = rs_df[col].pct_change(periods=MOMENTUM_PERIOD)
-
-# Tail data
+# ========== BUILD TAIL DATA ==========
 tail_data = []
-for col in indices.keys():
-    ratio_series = rs_df[col + '_ratio'].dropna()
-    momentum_series = rs_df[col + '_momentum'].dropna()
-    if len(ratio_series) >= TAIL_LENGTH and len(momentum_series) >= TAIL_LENGTH:
-        tail_data.append({
-            'Name': col,
-            'RS Ratio': ratio_series.iloc[-TAIL_LENGTH:],
-            'RS Momentum': momentum_series.iloc[-TAIL_LENGTH:],
-            'Week': list(range(1, TAIL_LENGTH + 1))
-        })
+for name in indices:
+    ratio = rs_df[name + '_ratio'].dropna()
+    momentum = rs_df[name + '_momentum'].dropna()
+    if len(ratio) >= TAIL_LENGTH and len(momentum) >= TAIL_LENGTH:
+        tail_data.append(pd.DataFrame({
+            'Name': name,
+            'RS Ratio': ratio.iloc[-TAIL_LENGTH:].values,
+            'RS Momentum': momentum.iloc[-TAIL_LENGTH:].values,
+            'Week': list(range(TAIL_LENGTH))
+        }))
 
 if not tail_data:
-    st.warning("⚠️ No tail data found. Try changing your settings.")
+    st.warning("⚠️ Not enough data. Try reducing the Tail Length or check the internet.")
     st.stop()
 
-tail_df = pd.DataFrame(tail_data)
-tail_df = tail_df.explode(['RS Ratio', 'RS Momentum', 'Week']).reset_index(drop=True)
+tail_df = pd.concat(tail_data)
 
-# Plot chart
-fig = px.scatter(
-    tail_df,
-    x='RS Ratio',
-    y='RS Momentum',
-    color='Name',
-    title=f'RRG Chart (Sector Indices vs Nifty 50) — {interval.upper()}',
-    width=800,
-    height=600
-)
-fig.update_traces(marker=dict(size=0))  # Hide dots
+# ========== PLOT ==========
+fig = px.scatter(tail_df, x='RS Ratio', y='RS Momentum', color='Name')
+fig.update_traces(marker=dict(size=0))  # Remove dots
 
 # Add lines and arrows
-for name in indices.keys():
-    sector_data = tail_df[tail_df['Name'] == name]
-    fig.add_trace(
-        px.line(sector_data, x='RS Ratio', y='RS Momentum').data[0]
-    )
-    if len(sector_data) >= 2:
-        latest = sector_data.iloc[-1]
-        previous = sector_data.iloc[-2]
+for name in tail_df['Name'].unique():
+    data = tail_df[tail_df['Name'] == name]
+    fig.add_trace(px.line(data, x='RS Ratio', y='RS Momentum').data[0])
+    if len(data) >= 2:
+        latest = data.iloc[-1]
+        prev = data.iloc[-2]
         fig.add_annotation(
             x=latest['RS Ratio'], y=latest['RS Momentum'],
-            ax=previous['RS Ratio'], ay=previous['RS Momentum'],
+            ax=prev['RS Ratio'], ay=prev['RS Momentum'],
             xref='x', yref='y', axref='x', ayref='y',
             showarrow=True, arrowhead=2, arrowsize=1.5,
             arrowwidth=2, arrowcolor='white'
         )
 
-# Quadrants
+# Draw quadrant lines
 x_mean = tail_df['RS Ratio'].mean()
 y_mean = tail_df['RS Momentum'].mean()
-fig.add_shape(type="line", x0=x_mean, y0=tail_df['RS Momentum'].min(),
+fig.add_shape(type='line', x0=x_mean, y0=tail_df['RS Momentum'].min(),
               x1=x_mean, y1=tail_df['RS Momentum'].max(),
-              line=dict(color="white", dash="dash"))
-fig.add_shape(type="line", x0=tail_df['RS Ratio'].min(), y0=y_mean,
+              line=dict(color='white', dash='dash'))
+fig.add_shape(type='line', x0=tail_df['RS Ratio'].min(), y0=y_mean,
               x1=tail_df['RS Ratio'].max(), y1=y_mean,
-              line=dict(color="white", dash="dash"))
+              line=dict(color='white', dash='dash'))
 
 st.plotly_chart(fig)
+
 
 
 
