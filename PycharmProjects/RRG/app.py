@@ -1,7 +1,6 @@
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 # ========== USER SETTINGS ==========
@@ -125,3 +124,8 @@ if tail_data:
     st.plotly_chart(fig)
 else:
     st.warning("⚠️ Not enough data to plot RRG chart. Try lowering the tail or smoothing periods.")
+
+
+
+
+# streamlit run app.py
