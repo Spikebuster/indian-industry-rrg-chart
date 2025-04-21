@@ -6,8 +6,8 @@ import streamlit as st
 # ========== USER SETTINGS ==========
 # You can change these:
 SMOOTHING_PERIOD = st.slider('RS Ratio Smoothing Period', min_value=1, max_value=20, value=1)  # For RS Ratio smoothing
-MOMENTUM_PERIOD = st.slider('RS Momentum Period', min_value=1, max_value=30, value=14)    # For RS Momentum calculation
-TAIL_LENGTH = st.slider('Tail Length', min_value=1, max_value=20, value=7)        # How many periods of tail to show
+MOMENTUM_PERIOD = st.slider('RS Momentum Period', min_value=1, max_value=30, value=14)         # For RS Momentum calculation
+TAIL_LENGTH = st.slider('Tail Length', min_value=1, max_value=20, value=7)                     # How many periods of tail to show
 
 # Use actual NSE sector indices (not stocks) and Nifty Financial Services
 indices = {
@@ -47,10 +47,10 @@ rs_df = pd.DataFrame()
 for name, ticker in indices.items():
     rs_df[name] = data[ticker] / data[benchmark]
 
-# RS Ratio and Momentum (smoothed and percent change)
+# RS Ratio and Momentum (smoothed and percent change * 100)
 for col in rs_df.columns:
     rs_df[col + '_ratio'] = rs_df[col].rolling(window=SMOOTHING_PERIOD).mean() * 100
-    rs_df[col + '_momentum'] = rs_df[col].pct_change(periods=MOMENTUM_PERIOD)
+    rs_df[col + '_momentum'] = rs_df[col].pct_change(periods=MOMENTUM_PERIOD) * 100
 
 # Get latest TAIL_LENGTH weeks of RS data for tails
 tail_data = []
@@ -125,7 +125,3 @@ if tail_data:
 else:
     st.warning("⚠️ Not enough data to plot RRG chart. Try lowering the tail or smoothing periods.")
 
-
-
-
-# streamlit run app.py
