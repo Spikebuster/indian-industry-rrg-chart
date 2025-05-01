@@ -1,13 +1,15 @@
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 # ========== USER SETTINGS ==========
 # You can change these:
 SMOOTHING_PERIOD = st.slider('RS Ratio Smoothing Period', min_value=1, max_value=20, value=1)  # For RS Ratio smoothing
-MOMENTUM_PERIOD = st.slider('RS Momentum Period', min_value=1, max_value=30, value=14)         # For RS Momentum calculation
-TAIL_LENGTH = st.slider('Tail Length', min_value=1, max_value=20, value=7)                     # How many periods of tail to show
+MOMENTUM_PERIOD = st.slider('RS Momentum Period', min_value=1, max_value=30, value=14)    # For RS Momentum calculation
+TAIL_LENGTH = st.slider('Tail Length', min_value=1, max_value=20, value=7)        # How many periods of tail to show
+TIMEFRAME = st.selectbox('Timeframe', options=['weekly', 'monthly'], index=0)  # Options: 'weekly' or 'monthly'
 
 # Use actual NSE sector indices (not stocks) and Nifty Financial Services
 indices = {
@@ -23,9 +25,15 @@ indices = {
 }
 benchmark = '^NSEI'  # Nifty 50 (benchmark)
 
-# Set to weekly by default
-interval = '1wk'
-period = '6mo'
+# Determine interval and period based on timeframe
+if TIMEFRAME == 'weekly':
+    interval = '1wk'
+    period = '6mo'
+elif TIMEFRAME == 'monthly':
+    interval = '1mo'
+    period = '5y'  # Extended to 5 years for better monthly resolution
+else:
+    raise ValueError("TIMEFRAME must be 'weekly' or 'monthly'")
 
 # Download data
 tickers = list(indices.values()) + [benchmark]
@@ -39,7 +47,7 @@ if benchmark not in valid_tickers:
     if valid_tickers:
         benchmark = valid_tickers[-1]
     else:
-        st.error("⚠️ No valid data found for the selected timeframe.")
+        st.error("⚠️ No valid data found for the selected timeframe. Try switching to weekly or increasing the data period.")
         st.stop()
 
 # Relative Strength calculations
@@ -47,10 +55,10 @@ rs_df = pd.DataFrame()
 for name, ticker in indices.items():
     rs_df[name] = data[ticker] / data[benchmark]
 
-# RS Ratio and Momentum (smoothed and percent change * 100)
+# RS Ratio and Momentum (smoothed and percent change)
 for col in rs_df.columns:
     rs_df[col + '_ratio'] = rs_df[col].rolling(window=SMOOTHING_PERIOD).mean() * 100
-    rs_df[col + '_momentum'] = rs_df[col].pct_change(periods=MOMENTUM_PERIOD) * 100
+    rs_df[col + '_momentum'] = rs_df[col].pct_change(periods=MOMENTUM_PERIOD)
 
 # Get latest TAIL_LENGTH weeks of RS data for tails
 tail_data = []
@@ -77,7 +85,7 @@ if tail_data:
         y='RS Momentum',
         text='Name',
         color='Name',
-        title=f'RRG Chart (Sector Indices vs Nifty 50) — Weekly',
+        title=f'RRG Chart (Sector Indices vs Nifty 50) — {TIMEFRAME.title()}',
         width=800,
         height=600
     )
@@ -123,5 +131,6 @@ if tail_data:
     # Show plot inline with Streamlit
     st.plotly_chart(fig)
 else:
-    st.warning("⚠️ Not enough data to plot RRG chart. Try lowering the tail or smoothing periods.")
+    st.warning("⚠️ Not enough data to plot RRG chart. Try lowering the tail or smoothing periods, or switch timeframe.")
+
 
