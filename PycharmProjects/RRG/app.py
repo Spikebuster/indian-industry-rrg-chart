@@ -1,15 +1,13 @@
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
 
 # ========== USER SETTINGS ==========
 # You can change these:
-SMOOTHING_PERIOD = st.slider('RS Ratio Smoothing Period', min_value=1, max_value=20, value=1)  # For RS Ratio smoothing
-MOMENTUM_PERIOD = st.slider('RS Momentum Period', min_value=1, max_value=30, value=14)    # For RS Momentum calculation
-TAIL_LENGTH = st.slider('Tail Length', min_value=1, max_value=20, value=7)        # How many periods of tail to show
-TIMEFRAME = st.selectbox('Timeframe', options=['weekly', 'monthly'], index=0)  # Options: 'weekly' or 'monthly'
+SMOOTHING_PERIOD = 1  # For RS Ratio smoothing
+MOMENTUM_PERIOD = 14    # For RS Momentum calculation
+TAIL_LENGTH = 7        # How many periods of tail to show
+TIMEFRAME = 'weekly'   # Options: 'weekly' or 'monthly'
 
 # Use actual NSE sector indices (not stocks) and Nifty Financial Services
 indices = {
@@ -31,7 +29,7 @@ if TIMEFRAME == 'weekly':
     period = '6mo'
 elif TIMEFRAME == 'monthly':
     interval = '1mo'
-    period = '5y'  # Extended to 5 years for better monthly resolution
+    period = '2y'
 else:
     raise ValueError("TIMEFRAME must be 'weekly' or 'monthly'")
 
@@ -44,11 +42,10 @@ data = data.dropna(axis=1)
 valid_tickers = data.columns.tolist()
 indices = {name: ticker for name, ticker in indices.items() if ticker in valid_tickers}
 if benchmark not in valid_tickers:
-    if valid_tickers:
-        benchmark = valid_tickers[-1]
-    else:
-        st.error("⚠️ No valid data found for the selected timeframe. Try switching to weekly or increasing the data period.")
-        st.stop()
+    benchmark = valid_tickers[-1]
+
+print("\n✅ Using these sector indices:", list(indices.keys()))
+print(f"✅ Using benchmark: {benchmark}")
 
 # Relative Strength calculations
 rs_df = pd.DataFrame()
@@ -74,11 +71,11 @@ for col in indices.keys():
         })
 
 # Convert to DataFrame
-if tail_data:
-    tail_df = pd.DataFrame(tail_data)
-    tail_df = tail_df.explode(['RS Ratio', 'RS Momentum', 'Week']).reset_index(drop=True)
+tail_df = pd.DataFrame(tail_data)
+tail_df = tail_df.explode(['RS Ratio', 'RS Momentum', 'Week']).reset_index(drop=True)
 
-    # Plot the RRG chart with tails (connected by lines)
+# Plot the RRG chart with tails (connected by lines)
+if not tail_df.empty:
     fig = px.scatter(
         tail_df,
         x='RS Ratio',
@@ -96,22 +93,6 @@ if tail_data:
             px.line(sector_data, x='RS Ratio', y='RS Momentum').data[0]
         )
 
-        # Add arrow instead of dot at latest point
-        latest_point = sector_data.iloc[-1]
-        previous_point = sector_data.iloc[-2]
-        fig.add_annotation(
-            x=latest_point['RS Ratio'],
-            y=latest_point['RS Momentum'],
-            ax=previous_point['RS Ratio'],
-            ay=previous_point['RS Momentum'],
-            xref='x', yref='y', axref='x', ayref='y',
-            showarrow=True,
-            arrowhead=2,
-            arrowsize=1.5,
-            arrowwidth=2,
-            arrowcolor='white'
-        )
-
     # Label only the last dot
     fig.update_traces(textposition='top center', showlegend=False)
     for trace in fig.data:
@@ -123,14 +104,14 @@ if tail_data:
     y_mean = tail_df['RS Momentum'].mean()
     fig.add_shape(type="line", x0=x_mean, y0=tail_df['RS Momentum'].min(),
                   x1=x_mean, y1=tail_df['RS Momentum'].max(),
-                  line=dict(color="white", dash="dash"))
+                  line=dict(color="Black", dash="dash"))
     fig.add_shape(type="line", x0=tail_df['RS Ratio'].min(), y0=y_mean,
                   x1=tail_df['RS Ratio'].max(), y1=y_mean,
-                  line=dict(color="white", dash="dash"))
+                  line=dict(color="Black", dash="dash"))
 
-    # Show plot inline with Streamlit
-    st.plotly_chart(fig)
+    fig.show()
 else:
-    st.warning("⚠️ Not enough data to plot RRG chart. Try lowering the tail or smoothing periods, or switch timeframe.")
+    print("⚠️ Not enough data to plot RRG chart with tails.")
+
 
 
